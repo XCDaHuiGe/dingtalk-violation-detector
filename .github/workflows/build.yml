@@ -61,8 +61,15 @@ jobs:
             --hidden-import struct \
             --clean detector_cli.py
 
+      - name: 生成双击启动脚本
+        run: |
+          printf '#!/bin/bash\ncd "$(dirname "$0")"\nchmod +x ./钉钉违规检测工具-CLI\n./钉钉违规检测工具-CLI\nread -p "按回车键退出..."\n' > dist/钉钉违规检测工具.command
+          chmod +x dist/钉钉违规检测工具.command
+
       - name: 上传 macOS 产物
         uses: actions/upload-artifact@v4
         with:
           name: macOS-CLI
-          path: dist/钉钉违规检测工具-CLI
+          path: |
+            dist/钉钉违规检测工具-CLI
+            dist/钉钉违规检测工具.command
