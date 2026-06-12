@@ -63,7 +63,7 @@ jobs:
 
       - name: 生成双击启动脚本
         run: |
-          printf '#!/bin/bash\ncd "$(dirname "$0")"\nchmod +x ./违规检测工具-CLI\n./违规检测工具-CLI\nread -p "按回车键退出..."\n' > dist/违规检测工具.command
+          printf '#!/bin/bash\ncd "$(dirname "$0")"\nchmod +x ./违规检测工具-CLI 2>/dev/null\nchmod +x "$0" 2>/dev/null\nxattr -cr ./违规检测工具-CLI 2>/dev/null\n./违规检测工具-CLI\nread -p "按回车键退出..."\n' > dist/违规检测工具.command
           chmod +x dist/违规检测工具.command
 
       - name: 上传 macOS 产物
