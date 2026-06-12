@@ -28,7 +28,14 @@ echo "[3/3] 打包命令行版..."
 cat > dist/违规检测工具.command << 'SCRIPT'
 #!/bin/bash
 cd "$(dirname "$0")"
-chmod +x ./违规检测工具-CLI
+
+# 自动修复权限，无需用户确认
+chmod +x ./违规检测工具-CLI 2>/dev/null
+chmod +x "$0" 2>/dev/null
+
+# 移除 macOS 隔离属性（解决 Gatekeeper 阻止运行的问题）
+xattr -cr ./违规检测工具-CLI 2>/dev/null
+
 ./违规检测工具-CLI
 read -p "
 按回车键退出..."

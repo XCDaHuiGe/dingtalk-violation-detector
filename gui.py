@@ -92,7 +92,7 @@ class DingTalkScannerGUI:
         self.progress.pack(fill="x", padx=10)
 
         # ── Treeview ──────────────────────────────────────────────
-        tree_frame = tk.Frame(self.root, padx=10, pady=(6, 4))
+        tree_frame = tk.Frame(self.root, padx=10, pady=6)
         tree_frame.pack(fill="both", expand=True)
 
         style = ttk.Style()
