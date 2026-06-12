@@ -29,14 +29,27 @@ cat > dist/违规检测工具.command << 'SCRIPT'
 #!/bin/bash
 cd "$(dirname "$0")"
 
-# 自动修复权限，无需用户确认
-chmod +x ./违规检测工具-CLI 2>/dev/null
-chmod +x "$0" 2>/dev/null
+CLI="./违规检测工具-CLI"
 
-# 移除 macOS 隔离属性（解决 Gatekeeper 阻止运行的问题）
-xattr -cr ./违规检测工具-CLI 2>/dev/null
+# 若 CLI 二进制已被移入废纸篓，自动恢复
+if [ ! -f "$CLI" ]; then
+    TRASH_PATH="$HOME/.Trash/违规检测工具-CLI"
+    if [ -f "$TRASH_PATH" ]; then
+        cp "$TRASH_PATH" "$CLI"
+        echo "已从废纸篓恢复 CLI 程序"
+    else
+        echo "错误: 找不到违规检测工具-CLI，请确认两个文件在同一目录"
+        read -p "
+按回车键退出..."
+        exit 1
+    fi
+fi
 
-./违规检测工具-CLI
+# 清除 macOS 隔离属性 + 修复执行权限
+xattr -cr "$CLI" 2>/dev/null
+chmod +x "$CLI" 2>/dev/null
+
+"$CLI"
 read -p "
 按回车键退出..."
 SCRIPT

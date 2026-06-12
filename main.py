@@ -1,9 +1,17 @@
 import os
+import sys
 import socket
 from detector import HighPerfScanner, delete_to_recycle_bin
 from notifier import send_notification
 from smartsheet import push_results_to_smartsheet
-from gui import DingTalkScannerGUI
+
+# 根据参数选择 GUI
+USE_FLET = '--flet' in sys.argv or '-f' in sys.argv
+
+if USE_FLET:
+    from flet_gui import FletGUI as GUI_CLASS
+else:
+    from gui import DingTalkScannerGUI as GUI_CLASS
 
 
 class ScanController:
@@ -63,7 +71,7 @@ def main():
     def do_notify(username, results, webhook_url):
         return send_notification(username, results, webhook_url, source_name="")
 
-    gui = DingTalkScannerGUI(
+    gui = GUI_CLASS(
         on_scan_callable=ctrl.do_scan,
         on_cancel_callable=ctrl.cancel,
         on_notify_callable=do_notify,

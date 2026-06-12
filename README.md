@@ -18,6 +18,7 @@
 | 版本 | 入口 | UI | 说明 |
 |------|------|-----|------|
 | 主力版 | `main.py` | tkinter GUI | Windows 图形界面版 |
+| flet 深色版 | `main.py --flet` | flet Material Design 3 | 深色主题现代 UI 版 |
 | 命令行版 | `detector_cli.py` | 终端 ANSI UI | 跨平台命令行版，无 tkinter 依赖 |
 | V3 封存版 | `V3/` | tkinter GUI | 历史版本，已封存 |
 
@@ -29,6 +30,16 @@
 # 双击 build.bat 或命令行执行
 build.bat
 # 产物在 dist/ 目录
+```
+
+### flet 深色版（推荐）
+
+```bash
+# 直接运行（需安装 flet: pip install flet）
+python main.py --flet
+
+# 或使用 -f 参数
+python main.py -f
 ```
 
 ### macOS / Linux（命令行版）
@@ -90,7 +101,8 @@ git push origin v4.0
 ```
 ├── detector.py          # 检测引擎（核心）
 ├── detector_cli.py      # 命令行版入口
-├── gui.py               # GUI 版界面
+├── gui.py               # tkinter GUI 版界面
+├── flet_gui.py          # flet 深色 Material Design 3 版界面
 ├── main.py              # GUI 版入口
 ├── notifier.py          # 企业微信报警
 ├── smartsheet.py        # 智能表同步
@@ -104,6 +116,7 @@ git push origin v4.0
 
 - Python 3.8+
 - tkinter（GUI 版）
+- flet（深色 Material Design 3 版）
 - ANSI 转义码（CLI 版终端 UI）
 - PyInstaller（打包）
 - Windows VERSION.dll + ctypes（PE 元数据读取）
