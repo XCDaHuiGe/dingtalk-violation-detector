@@ -1,9 +1,10 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox
 import threading
 import time
 import os
-import csv
+import sys
+import subprocess
 from typing import List, Dict
 from collections import defaultdict
 from detector import DetectionResult, ScanProgress, get_available_drives, open_explorer_at
@@ -34,12 +35,14 @@ class DingTalkScannerGUI:
 
     def __init__(self, on_scan_callable, on_notify_callable,
                  on_cancel_callable=None, on_smartsheet_callable=None,
-                 on_clean_registry_callable=None):
+                 on_clean_registry_callable=None,
+                 on_delete_callable=None):
         self.on_scan = on_scan_callable
         self.on_notify = on_notify_callable
         self.on_cancel = on_cancel_callable
         self.on_smartsheet = on_smartsheet_callable
         self.on_clean_registry = on_clean_registry_callable
+        self.on_delete = on_delete_callable
         self._results: List[DetectionResult] = []
         self._scanning = False
 
@@ -51,6 +54,7 @@ class DingTalkScannerGUI:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
+        self._create_context_menu()
 
     def _build_ui(self):
         c = self.COLORS
@@ -95,9 +99,17 @@ class DingTalkScannerGUI:
                   bg="#6366F1", fg="white", font=btn_font, relief="flat",
                   padx=8, pady=3, cursor="hand2").pack(side="left", padx=2)
 
-        tk.Button(ctrl, text="导出CSV", command=self._export_csv,
-                  bg="#0EA5E9", fg="white", font=btn_font, relief="flat",
+        tk.Button(ctrl, text="删除所选", command=self._delete_selected,
+                  bg=c["danger"], fg="white", font=btn_font, relief="flat",
                   padx=8, pady=3, cursor="hand2").pack(side="left", padx=2)
+
+        tk.Button(ctrl, text="全选", command=self._select_all,
+                  bg="#64748B", fg="white", font=btn_font, relief="flat",
+                  padx=6, pady=3, cursor="hand2").pack(side="left", padx=1)
+
+        tk.Button(ctrl, text="取消全选", command=self._deselect_all,
+                  bg="#94A3B8", fg="white", font=btn_font, relief="flat",
+                  padx=6, pady=3, cursor="hand2").pack(side="left", padx=1)
 
         tk.Button(ctrl, text="清理注册表", command=self._clean_registry,
                   bg=c["danger"], fg="white", font=btn_font, relief="flat",
@@ -160,12 +172,33 @@ class DingTalkScannerGUI:
         # ── 底部 ──────────────────────────────────────────────────
         bottom = tk.Frame(self.root, bg=c["bg"], padx=16, pady=6)
         bottom.pack(fill="x")
-        tk.Label(bottom, text="⚠ 本软件只做检测，请自行考虑文件是否需要删除",
-                 bg=c["bg"], fg=c["danger"], font=("微软雅黑", 9)).pack(side="left")
+        tk.Label(bottom, text="删除操作移入回收站，可从回收站恢复",
+                 bg=c["bg"], fg=c["text_sec"], font=("微软雅黑", 9)).pack(side="left")
         tk.Label(bottom, text="开发者: xc-hjh",
                  bg=c["bg"], fg=c["text_sec"], font=("微软雅黑", 8)).pack(side="right")
 
+        # ── 事件绑定 ──────────────────────────────────────────────
         self.tree.bind("<<TreeviewOpen>>", self._on_tree_open)
+        self.tree.bind("<Double-1>", self._on_double_click)
+
+    # ── 右键上下文菜单 ─────────────────────────────────────────────
+
+    def _create_context_menu(self):
+        self.ctx_menu = tk.Menu(self.root, tearoff=0)
+        self.ctx_menu.add_command(label="打开文件位置", command=self._open_selected_location)
+        self.ctx_menu.add_command(label="删除所选文件", command=self._delete_selected)
+        self.ctx_menu.add_separator()
+        self.ctx_menu.add_command(label="复制路径", command=self._copy_selected_paths)
+
+        self.tree.bind("<Button-3>", self._show_context_menu)
+        self.tree.bind("<Button-2>", self._show_context_menu)
+
+    def _show_context_menu(self, event):
+        item = self.tree.identify_row(event.y)
+        if item and item not in self.tree.selection():
+            self.tree.selection_set(item)
+        if self.tree.selection():
+            self.ctx_menu.post(event.x_root, event.y_root)
 
     # ── 工具方法 ───────────────────────────────────────────────────
 
@@ -181,6 +214,26 @@ class DingTalkScannerGUI:
     def _get_drives(self) -> List[str]:
         return get_available_drives()
 
+    def _get_selected_full_paths(self) -> list:
+        """获取当前选中项的完整文件路径列表"""
+        paths = []
+        for item in self.tree.selection():
+            values = self.tree.item(item, "values")
+            if not values:
+                continue
+            _, name, path, _ = values
+            items_str = self.tree.set(item, "_items")
+            if items_str:
+                for r in eval(items_str):
+                    fp = os.path.join(r.path, r.filename)
+                    if fp not in paths:
+                        paths.append(fp)
+            else:
+                fp = os.path.join(path, name)
+                if fp not in paths:
+                    paths.append(fp)
+        return paths
+
     # ── 按目录分组 ─────────────────────────────────────────────────
 
     def _group_results(self, results: List[DetectionResult]) -> Dict[str, List[DetectionResult]]:
@@ -195,20 +248,15 @@ class DingTalkScannerGUI:
             self.tree.delete(item)
 
         groups = self._group_results(results)
-        total_files = 0
 
         for dir_path, items in sorted(groups.items()):
             if len(items) == 1:
-                # 单文件：直接显示一行
                 r = items[0]
-                full = os.path.join(r.path, r.filename)
                 self.tree.insert("", "end", text="",
                                  values=(r.file_type, r.filename, r.path,
                                          self._format_size(r.size)),
                                  tags=("single",))
-                total_files += 1
             else:
-                # 多文件：目录节点 + 子文件
                 types = set(i.file_type for i in items)
                 type_label = "/".join(sorted(types))
                 total_size = sum(i.size for i in items)
@@ -217,35 +265,50 @@ class DingTalkScannerGUI:
                     values=(type_label, os.path.basename(dir_path) or dir_path,
                             dir_path, self._format_size(total_size)),
                     tags=("dir",))
-                # 存子文件列表供展开时使用
                 self.tree.set(dir_node, "_items", repr(items))
-                total_files += len(items)
 
-        # 设置标签样式
         self.tree.tag_configure("dir", background="#FEFCE8")
         self.tree.tag_configure("single", background="white")
-
-        # 懒加载：目录节点展开时才创建子节点
-        # 实际子节点在 _on_tree_open 中创建
 
     def _on_tree_open(self, event):
         """目录节点展开时，动态加载子文件"""
         node = self.tree.focus()
         if not node:
             return
-        # 已有子节点则跳过
         if self.tree.get_children(node):
             return
         items_str = self.tree.set(node, "_items")
         if not items_str:
             return
-        items = eval(items_str)  # safe: 仅内部使用
+        items = eval(items_str)
         for r in items:
             self.tree.insert(node, "end", text="",
                              values=(r.file_type, r.filename, r.path,
                                      self._format_size(r.size)),
                              tags=("file",))
         self.tree.tag_configure("file", background="white")
+
+    # ── 双击定位 ───────────────────────────────────────────────────
+
+    def _on_double_click(self, event):
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        # 目录组节点：不拦截，让 Treeview 处理展开/折叠
+        if self.tree.set(item, "_items"):
+            return
+        values = self.tree.item(item, "values")
+        if not values:
+            return
+        _, name, path, _ = values
+        full_path = os.path.join(path, name)
+        if os.path.exists(full_path):
+            open_explorer_at(full_path)
+        elif os.path.isdir(path):
+            if sys.platform == "darwin":
+                subprocess.run(["open", path])
+            else:
+                subprocess.Popen(f'explorer "{path}"', shell=True)
 
     # ── 扫描流程 ───────────────────────────────────────────────────
 
@@ -335,29 +398,109 @@ class DingTalkScannerGUI:
         tag = "智能表已同步 ✓" if r.get("success") else f"智能表失败: {r.get('message','')}"
         self.status_var.set(f"{self.status_var.get()} ; {tag}")
 
-    # ── 导出 CSV ───────────────────────────────────────────────────
+    # ── 删除功能 ───────────────────────────────────────────────────
 
-    def _export_csv(self):
-        if not self._results:
+    def _delete_selected(self):
+        if not self.on_delete:
+            messagebox.showwarning("提示", "删除功能未启用")
             return
-        path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV 文件", "*.csv")],
-            initialfile="违规检测结果.csv")
-        if not path:
-            return
-        try:
-            with open(path, "w", newline="", encoding="utf-8-sig") as f:
-                w = csv.writer(f)
-                w.writerow(["类型", "文件名", "路径", "大小"])
-                for r in self._results:
-                    w.writerow([r.file_type, r.filename, r.path,
-                                self._format_size(r.size)])
-            messagebox.showinfo("导出成功", f"已导出 {len(self._results)} 条记录到:\n{path}")
-        except Exception as e:
-            messagebox.showerror("导出失败", str(e))
 
-    # ── 复制路径 ───────────────────────────────────────────────────
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showinfo("提示", "请先选中要删除的文件")
+            return
+
+        files_to_delete = []
+        nodes_to_remove = []
+
+        for item in selected:
+            values = self.tree.item(item, "values")
+            if not values:
+                continue
+            _, name, path, _ = values
+
+            items_str = self.tree.set(item, "_items")
+            if items_str:
+                items = eval(items_str)
+                for r in items:
+                    fp = os.path.join(r.path, r.filename)
+                    if fp not in files_to_delete:
+                        files_to_delete.append(fp)
+                nodes_to_remove.append(item)
+            else:
+                fp = os.path.join(path, name)
+                if fp not in files_to_delete:
+                    files_to_delete.append(fp)
+                nodes_to_remove.append(item)
+
+        if not files_to_delete:
+            return
+
+        count = len(files_to_delete)
+        if not messagebox.askyesno("确认删除",
+                f"确定要将 {count} 个文件移入回收站吗？\n\n此操作可从回收站恢复。"):
+            return
+
+        def _do():
+            errors = self.on_delete(files_to_delete)
+            self.root.after(0, self._delete_done, files_to_delete, errors, nodes_to_remove)
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _delete_done(self, file_paths, errors, nodes_to_remove):
+        for node in nodes_to_remove:
+            try:
+                self.tree.delete(node)
+            except tk.TclError:
+                pass
+
+        deleted_set = set(file_paths)
+        self._results = [r for r in self._results
+                         if os.path.join(r.path, r.filename) not in deleted_set]
+
+        total = len(self._results)
+        success_count = len(file_paths) - len(errors)
+
+        if errors:
+            msg = f"已删除 {success_count} 个文件，{len(errors)} 个失败"
+            if len(errors) <= 3:
+                msg += "\n\n" + "\n".join(errors)
+            messagebox.showwarning("删除完成", msg)
+            self.status_var.set(f"删除完成: 成功 {success_count}, 失败 {len(errors)}, 剩余 {total}")
+        else:
+            self.status_var.set(f"已成功删除 {success_count} 个文件，剩余 {total} 个违规项")
+
+    # ── 全选 / 取消全选 ────────────────────────────────────────────
+
+    def _select_all(self):
+        all_items = self.tree.get_children("")
+        if all_items:
+            self.tree.selection_set(all_items)
+
+    def _deselect_all(self):
+        self.tree.selection_remove(*self.tree.selection())
+
+    # ── 右键菜单动作 ───────────────────────────────────────────────
+
+    def _open_selected_location(self):
+        paths = self._get_selected_full_paths()
+        for fp in paths[:5]:  # 最多打开5个
+            if os.path.exists(fp):
+                open_explorer_at(fp)
+
+    def _copy_selected_paths(self):
+        paths = self._get_selected_full_paths()
+        if not paths:
+            return
+        text = "\n".join(paths)
+        if pyperclip:
+            pyperclip.copy(text)
+        else:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+        self.status_var.set(f"已复制 {len(paths)} 条路径到剪贴板")
+
+    # ── 复制全部路径 ───────────────────────────────────────────────
 
     def _copy_paths(self):
         if not self._results:
@@ -370,7 +513,7 @@ class DingTalkScannerGUI:
             self.root.clipboard_append(text)
         messagebox.showinfo("已复制", f"已复制 {len(self._results)} 条路径到剪贴板")
 
-    # ── 其他 ───────────────────────────────────────────────────────
+    # ── 清理注册表 ─────────────────────────────────────────────────
 
     def _clean_registry(self):
         if not self.on_clean_registry:

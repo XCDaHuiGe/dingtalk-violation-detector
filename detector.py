@@ -506,3 +506,47 @@ def open_explorer_at(file_path: str):
         subprocess.run(["open", "-R", file_path])
     else:
         subprocess.run(["xdg-open", os.path.dirname(file_path)])
+
+
+def delete_to_recycle_bin(file_path: str) -> tuple:
+    """
+    将文件/目录移入 Windows 回收站（安全删除，可恢复）。
+    Returns: (success: bool, error_message: str)
+    """
+    if not IS_WINDOWS:
+        return False, "仅支持 Windows 系统"
+    if not os.path.exists(file_path):
+        return False, "文件不存在"
+    try:
+        from ctypes import wintypes
+
+        FO_DELETE = 0x0003
+        FOF_ALLOWUNDO = 0x0040
+        FOF_NOCONFIRMATION = 0x0010
+        FOF_SILENT = 0x0004
+
+        class SHFILEOPSTRUCTW(ctypes.Structure):
+            _fields_ = [
+                ("hwnd",   wintypes.HWND),
+                ("wFunc",  ctypes.c_uint),
+                ("pFrom",  ctypes.c_wchar_p),
+                ("pTo",    ctypes.c_wchar_p),
+                ("fFlags", ctypes.c_ushort),
+                ("fAnyOperationsAborted", wintypes.BOOL),
+                ("hNameMappings", ctypes.c_void_p),
+                ("lpszProgressTitle", ctypes.c_wchar_p),
+            ]
+
+        fileop = SHFILEOPSTRUCTW()
+        fileop.hwnd = 0
+        fileop.wFunc = FO_DELETE
+        fileop.pFrom = file_path + "\0"  # c_wchar_p 自动追加 \0
+        fileop.pTo = None
+        fileop.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
+
+        result = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(fileop))
+        if result == 0 and not fileop.fAnyOperationsAborted:
+            return True, ""
+        return False, f"操作失败 (错误码: {result})"
+    except Exception as e:
+        return False, str(e)

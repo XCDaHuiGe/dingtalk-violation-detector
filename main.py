@@ -1,6 +1,6 @@
 import os
 import socket
-from detector import HighPerfScanner
+from detector import HighPerfScanner, delete_to_recycle_bin
 from notifier import send_notification
 from smartsheet import push_results_to_smartsheet
 from gui import DingTalkScannerGUI
@@ -44,6 +44,18 @@ class ScanController:
     def cancel(self):
         self.scanner.cancel()
 
+    def delete_files(self, file_paths: list) -> list:
+        """
+        批量删除文件（移入回收站）。
+        Returns: 失败信息列表，空列表表示全部成功。
+        """
+        errors = []
+        for fp in file_paths:
+            ok, msg = delete_to_recycle_bin(fp)
+            if not ok:
+                errors.append(f"{fp}: {msg}")
+        return errors
+
 
 def main():
     ctrl = ScanController()
@@ -57,6 +69,7 @@ def main():
         on_notify_callable=do_notify,
         on_smartsheet_callable=push_results_to_smartsheet,
         on_clean_registry_callable=ctrl.clean_registry,
+        on_delete_callable=ctrl.delete_files,
     )
     gui.run()
 

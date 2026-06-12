@@ -4,7 +4,7 @@
 import os, sys, time, subprocess, threading, csv
 from typing import List
 from collections import defaultdict
-from detector import HighPerfScanner, DetectionResult, ScanProgress, get_available_drives
+from detector import HighPerfScanner, DetectionResult, ScanProgress, get_available_drives, delete_to_recycle_bin
 from notifier import send_notification
 from smartsheet import push_results_to_smartsheet
 
@@ -238,15 +238,17 @@ class CLIApp:
     # ── 操作菜单 ───────────────────────────────────────────────────
     def _menu(self):
         while True:
-            print(f"\n{B}┌─ 操作菜单 ─────────────────────────┐{R}")
-            print(f"│  {CYN}[1]{R} 复制所有违规路径              │")
-            print(f"│  {CYN}[2]{R} 在文件管理器中定位文件        │")
-            print(f"│  {CYN}[3]{R} 导出全部结果到 CSV            │")
-            print(f"│  {CYN}[4]{R} 重新扫描                      │")
-            print(f"│  {CYN}[0]{R} 退出                          │")
-            print(f"{B}└────────────────────────────────────┘{R}")
+            print(f"\n{B}┌─ 操作菜单 ───────────────────────────┐{R}")
+            print(f"│  {CYN}[1]{R} 复制所有违规路径                │")
+            print(f"│  {CYN}[2]{R} 在文件管理器中定位文件          │")
+            print(f"│  {CYN}[3]{R} 删除指定序号文件（移入回收站）  │")
+            print(f"│  {CYN}[4]{R} 删除全部违规文件（移入回收站）  │")
+            print(f"│  {CYN}[5]{R} 导出全部结果到 CSV              │")
+            print(f"│  {CYN}[6]{R} 重新扫描                        │")
+            print(f"│  {CYN}[0]{R} 退出                            │")
+            print(f"{B}└──────────────────────────────────────┘{R}")
             try:
-                ch = input(f"请选择 [0-4]: ").strip()
+                ch = input(f"请选择 [0-6]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 print(); return
 
@@ -269,13 +271,90 @@ class CLIApp:
                 except (ValueError, EOFError):
                     print(f"  {RED}输入无效{R}")
             elif ch == "3":
-                self._export_csv()
+                self._delete_by_index()
             elif ch == "4":
+                self._delete_all()
+            elif ch == "5":
+                self._export_csv()
+            elif ch == "6":
                 self._scan()
                 return
             elif ch == "0":
                 print(f"\n{D}检测完毕，再见。{R}\n")
                 return
+
+    # ── 删除指定序号 ────────────────────────────────────────────────
+    def _delete_by_index(self):
+        if not IS_WIN:
+            print(f"  {RED}删除功能仅支持 Windows（移入回收站）{R}")
+            return
+        if not self.results:
+            print(f"  {RED}无结果可删除{R}")
+            return
+        try:
+            raw = input(f"  输入要删除的序号（多个用逗号分隔，如 1,3,5）: ").strip()
+            indices = [int(x.strip()) - 1 for x in raw.split(",")]
+        except (ValueError, EOFError):
+            print(f"  {RED}输入无效{R}"); return
+
+        targets = []
+        for idx in indices:
+            if 0 <= idx < len(self.results):
+                r = self.results[idx]
+                targets.append((idx, os.path.join(r.path, r.filename), r.filename))
+            else:
+                print(f"  {RED}序号 {idx+1} 无效，已跳过{R}")
+
+        if not targets:
+            return
+
+        print(f"\n  将删除以下 {len(targets)} 个文件:")
+        for _, _, fn in targets:
+            print(f"    - {fn}")
+
+        confirm = input(f"\n  {RED}确认删除？(y/N): {R}").strip().lower()
+        if confirm != "y":
+            print(f"  已取消"); return
+
+        to_remove = []
+        for idx, fp, fn in targets:
+            ok, msg = delete_to_recycle_bin(fp)
+            if ok:
+                print(f"  {GRN}✓ 已删除: {fn}{R}")
+                to_remove.append(idx)
+            else:
+                print(f"  {RED}✗ 删除失败 {fn}: {msg}{R}")
+
+        # 反向遍历移除已删除项
+        for i in sorted(to_remove, reverse=True):
+            self.results.pop(i)
+        print(f"\n  删除完成，剩余 {len(self.results)} 个违规项")
+
+    # ── 删除全部 ────────────────────────────────────────────────────
+    def _delete_all(self):
+        if not IS_WIN:
+            print(f"  {RED}删除功能仅支持 Windows（移入回收站）{R}"); return
+        if not self.results:
+            print(f"  {RED}无结果可删除{R}"); return
+
+        total = len(self.results)
+        confirm = input(f"\n  {RED}确定要将全部 {total} 个违规文件移入回收站？(y/N): {R}").strip().lower()
+        if confirm != "y":
+            print(f"  已取消"); return
+
+        remaining = []
+        for r in self.results:
+            fp = os.path.join(r.path, r.filename)
+            ok, msg = delete_to_recycle_bin(fp)
+            if ok:
+                print(f"  {GRN}✓ {r.filename}{R}")
+            else:
+                print(f"  {RED}✗ {r.filename}: {msg}{R}")
+                remaining.append(r)
+
+        deleted = total - len(remaining)
+        self.results = remaining
+        print(f"\n  删除完成: 成功 {deleted} 个，失败 {len(remaining)} 个")
 
 if __name__ == "__main__":
     CLIApp().run()
