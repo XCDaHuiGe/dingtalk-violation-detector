@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """钉钉违规检测工具 - 命令行版 (跨平台，无 tkinter 依赖)"""
-import os, sys, time, subprocess, threading
+import os, sys, time, subprocess, threading, csv
 from typing import List
+from collections import defaultdict
 from detector import HighPerfScanner, DetectionResult, ScanProgress, get_available_drives
 from notifier import send_notification
 from smartsheet import push_results_to_smartsheet
@@ -189,27 +190,63 @@ class CLIApp:
         t1.start(); t2.start()
         t1.join(timeout=15); t2.join(timeout=15)
 
-    # ── 结果表格 ───────────────────────────────────────────────────
+    # ── 结果表格（按目录分组）────────────────────────────────────────
     def _show_results(self):
         if not self.results:
             return
-        print()
-        for i, r in enumerate(self.results, 1):
-            full = os.path.join(r.path, r.filename)
-            print(f"  {YEL}{i:>2}.{R} {B}{r.file_type:<8}{R} {_trunc(r.filename, 35)}")
-            print(f"      {D}{full}{R}")
+        groups = defaultdict(list)
+        for r in self.results:
+            groups[r.path].append(r)
+        idx = 0
+        for dir_path, items in sorted(groups.items()):
+            if len(items) == 1:
+                r = items[0]; idx += 1
+                full = os.path.join(r.path, r.filename)
+                print(f"  {YEL}{idx:>3}.{R} {B}{r.file_type:<8}{R} {_trunc(r.filename, 35)}")
+                print(f"       {D}{full}{R}")
+            else:
+                total_sz = sum(i.size for i in items)
+                sz_str = self._fmt_size(total_sz)
+                print(f"\n  {CYN}{dir_path}{R}  ({YEL}{len(items)}{R} 个文件  {sz_str})")
+                for r in items:
+                    idx += 1
+                    print(f"    {YEL}{idx:>3}.{R} {B}{r.file_type:<8}{R} {_trunc(r.filename, 35)}")
+
+    @staticmethod
+    def _fmt_size(size):
+        if size == 0: return ""
+        for u in ("B","KB","MB","GB"):
+            if size < 1024: return f"{size:.1f}{u}"
+            size /= 1024
+        return f"{size:.1f}TB"
+
+    # ── 导出 CSV ─────────────────────────────────────────────────
+    def _export_csv(self):
+        if not self.results:
+            print(f"  {RED}无结果可导出{R}"); return
+        path = os.path.join(os.getcwd(), "违规检测结果.csv")
+        try:
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                w = csv.writer(f)
+                w.writerow(["类型","文件名","路径","大小"])
+                for r in self.results:
+                    w.writerow([r.file_type, r.filename, r.path, r.size])
+            print(f"  {GRN}✓ 已导出 {len(self.results)} 条到 {path}{R}")
+        except Exception as e:
+            print(f"  {RED}✗ 导出失败: {e}{R}")
 
     # ── 操作菜单 ───────────────────────────────────────────────────
     def _menu(self):
         while True:
-            print(f"\n{B}┌─ 操作菜单 ─────────────────────┐{R}")
-            print(f"│  {CYN}[1]{R} 复制所有违规路径            │")
-            print(f"│  {CYN}[2]{R} 在文件管理器中定位文件      │")
-            print(f"│  {CYN}[3]{R} 重新扫描                    │")
-            print(f"│  {CYN}[0]{R} 退出                        │")
-            print(f"{B}└─────────────────────────────────┘{R}")
+            print(f"\n{B}┌─ 操作菜单 ─────────────────────────┐{R}")
+            print(f"│  {CYN}[1]{R} 复制所有违规路径              │")
+            print(f"│  {CYN}[2]{R} 在文件管理器中定位文件        │")
+            print(f"│  {CYN}[3]{R} 导出全部结果到 CSV            │")
+            print(f"│  {CYN}[4]{R} 重新扫描                      │")
+            print(f"│  {CYN}[0]{R} 退出                          │")
+            print(f"{B}└────────────────────────────────────┘{R}")
             try:
-                ch = input(f"请选择 [0-3]: ").strip()
+                ch = input(f"请选择 [0-4]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 print(); return
 
@@ -232,6 +269,8 @@ class CLIApp:
                 except (ValueError, EOFError):
                     print(f"  {RED}输入无效{R}")
             elif ch == "3":
+                self._export_csv()
+            elif ch == "4":
                 self._scan()
                 return
             elif ch == "0":
