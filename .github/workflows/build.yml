@@ -1,0 +1,68 @@
+name: 打包违规检测工具
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: pip install pyinstaller requests pyperclip
+
+      - name: 打包 Windows GUI 版
+        run: |
+          pyinstaller --onefile --windowed `
+            --name "钉钉违规检测工具" `
+            --hidden-import requests `
+            --hidden-import urllib3 `
+            --hidden-import charset_normalizer `
+            --hidden-import pyperclip `
+            --hidden-import winreg `
+            --hidden-import ctypes `
+            --hidden-import struct `
+            --clean main.py
+
+      - name: 上传 Windows 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-GUI
+          path: dist/钉钉违规检测工具.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: pip install pyinstaller requests pyperclip
+
+      - name: 打包 macOS 命令行版
+        run: |
+          pyinstaller --onefile \
+            --name "钉钉违规检测工具-CLI" \
+            --hidden-import requests \
+            --hidden-import urllib3 \
+            --hidden-import charset_normalizer \
+            --hidden-import pyperclip \
+            --hidden-import struct \
+            --clean detector_cli.py
+
+      - name: 上传 macOS 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-CLI
+          path: dist/钉钉违规检测工具-CLI
