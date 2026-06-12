@@ -16,20 +16,7 @@ except ImportError:
 
 
 class DingTalkScannerGUI:
-    """钉钉违规检测工具 v4.0 - GUI"""
-
-    COLORS = {
-        "bg":       "#F5F6FA",
-        "card":     "#FFFFFF",
-        "primary":  "#2563EB",
-        "danger":   "#DC2626",
-        "success":  "#16A34A",
-        "border":   "#E2E8F0",
-        "text":     "#1E293B",
-        "text_sec": "#64748B",
-        "stripe":   "#F8FAFC",
-        "header":   "#1E293B",
-    }
+    """违规检测工具 v5.0 - GUI"""
 
     TREE_COLS = ("type", "name", "path", "size")
 
@@ -47,116 +34,85 @@ class DingTalkScannerGUI:
         self._scanning = False
 
         self.root = tk.Tk()
-        self.root.title("钉钉违规检测工具 v4.0")
-        self.root.geometry("1020x720")
+        self.root.title("违规检测工具 v5.0")
+        self.root.geometry("1000x680")
         self.root.minsize(800, 500)
-        self.root.configure(bg=self.COLORS["bg"])
+        self.root.configure(bg="#F0F0F0")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
         self._create_context_menu()
 
     def _build_ui(self):
-        c = self.COLORS
-
-        # ── 顶部区域 ──────────────────────────────────────────────
-        top = tk.Frame(self.root, bg=c["card"], padx=16, pady=12)
+        # ── 顶部：姓名 + 按钮 ─────────────────────────────────────
+        top = tk.Frame(self.root, bg="#F0F0F0", padx=10, pady=8)
         top.pack(fill="x")
 
-        # 标题行
-        title_frame = tk.Frame(top, bg=c["card"])
-        title_frame.pack(fill="x", pady=(0, 8))
-        tk.Label(title_frame, text="钉钉违规检测工具", bg=c["card"],
-                 fg=c["text"], font=("微软雅黑", 14, "bold")).pack(side="left")
-        tk.Label(title_frame, text="v4.0  xc-hjh", bg=c["card"],
-                 fg=c["text_sec"], font=("微软雅黑", 9)).pack(side="left", padx=(8, 0))
-
-        # 输入 + 按钮行
-        ctrl = tk.Frame(top, bg=c["card"])
-        ctrl.pack(fill="x")
-
-        tk.Label(ctrl, text="姓名", bg=c["card"], fg=c["text"],
+        tk.Label(top, text="姓名", bg="#F0F0F0",
                  font=("微软雅黑", 10)).pack(side="left")
         self.name_var = tk.StringVar()
-        self.name_entry = tk.Entry(ctrl, textvariable=self.name_var, width=18,
-                                   font=("微软雅黑", 10), relief="solid", bd=1)
+        self.name_entry = tk.Entry(top, textvariable=self.name_var, width=16,
+                                   font=("微软雅黑", 10))
         self.name_entry.pack(side="left", padx=(4, 12))
 
-        btn_font = ("微软雅黑", 9, "bold")
+        btn_cfg = dict(font=("微软雅黑", 9), padx=8, pady=2, cursor="hand2")
 
-        self.start_btn = tk.Button(ctrl, text="开始检测", command=self._start_scan,
-                                   bg=c["primary"], fg="white", font=btn_font,
-                                   relief="flat", padx=12, pady=3, cursor="hand2")
+        self.start_btn = tk.Button(top, text="开始检测", command=self._start_scan,
+                                   **btn_cfg)
         self.start_btn.pack(side="left", padx=2)
 
-        self.cancel_btn = tk.Button(ctrl, text="取消", command=self._cancel_scan,
-                                    state="disabled", bg="#94A3B8", fg="white",
-                                    font=btn_font, relief="flat", padx=8, pady=3,
-                                    cursor="hand2")
+        self.cancel_btn = tk.Button(top, text="取消", command=self._cancel_scan,
+                                    state="disabled", **btn_cfg)
         self.cancel_btn.pack(side="left", padx=2)
 
-        tk.Button(ctrl, text="复制路径", command=self._copy_paths,
-                  bg="#6366F1", fg="white", font=btn_font, relief="flat",
-                  padx=8, pady=3, cursor="hand2").pack(side="left", padx=2)
-
-        tk.Button(ctrl, text="删除所选", command=self._delete_selected,
-                  bg=c["danger"], fg="white", font=btn_font, relief="flat",
-                  padx=8, pady=3, cursor="hand2").pack(side="left", padx=2)
-
-        tk.Button(ctrl, text="全选", command=self._select_all,
-                  bg="#64748B", fg="white", font=btn_font, relief="flat",
-                  padx=6, pady=3, cursor="hand2").pack(side="left", padx=1)
-
-        tk.Button(ctrl, text="取消全选", command=self._deselect_all,
-                  bg="#94A3B8", fg="white", font=btn_font, relief="flat",
-                  padx=6, pady=3, cursor="hand2").pack(side="left", padx=1)
-
-        tk.Button(ctrl, text="清理注册表", command=self._clean_registry,
-                  bg=c["danger"], fg="white", font=btn_font, relief="flat",
-                  padx=8, pady=3, cursor="hand2").pack(side="right")
+        tk.Button(top, text="删除所选", command=self._delete_selected,
+                  **btn_cfg).pack(side="left", padx=2)
+        tk.Button(top, text="全选", command=self._select_all,
+                  **btn_cfg).pack(side="left", padx=2)
+        tk.Button(top, text="取消全选", command=self._deselect_all,
+                  **btn_cfg).pack(side="left", padx=2)
+        tk.Button(top, text="复制路径", command=self._copy_paths,
+                  **btn_cfg).pack(side="left", padx=2)
+        tk.Button(top, text="清理注册表", command=self._clean_registry,
+                  **btn_cfg).pack(side="right")
 
         # ── 状态栏 ────────────────────────────────────────────────
-        status_bar = tk.Frame(self.root, bg="#EFF6FF", padx=16, pady=6)
+        status_bar = tk.Frame(self.root, bg="#F0F0F0", padx=10, pady=4)
         status_bar.pack(fill="x")
 
         self.status_var = tk.StringVar(value="就绪")
-        tk.Label(status_bar, textvariable=self.status_var, bg="#EFF6FF",
-                 fg=c["text"], font=("微软雅黑", 9)).pack(side="left")
+        tk.Label(status_bar, textvariable=self.status_var, bg="#F0F0F0",
+                 font=("微软雅黑", 9)).pack(side="left")
 
         self.detail_var = tk.StringVar(value="")
-        tk.Label(status_bar, textvariable=self.detail_var, bg="#EFF6FF",
-                 fg=c["text_sec"], font=("Consolas", 9)).pack(side="right")
+        tk.Label(status_bar, textvariable=self.detail_var, bg="#F0F0F0",
+                 fg="#666666", font=("Consolas", 9)).pack(side="right")
 
         self.progress = ttk.Progressbar(self.root, mode="indeterminate", length=300)
-        self.progress.pack(fill="x")
+        self.progress.pack(fill="x", padx=10)
 
-        # ── Treeview 主区域 ────────────────────────────────────────
-        tree_frame = tk.Frame(self.root, bg=c["card"], padx=8, pady=8)
-        tree_frame.pack(fill="both", expand=True, padx=8, pady=(8, 4))
+        # ── Treeview ──────────────────────────────────────────────
+        tree_frame = tk.Frame(self.root, padx=10, pady=(6, 4))
+        tree_frame.pack(fill="both", expand=True)
 
-        # Treeview 样式
         style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("Treeview", background="white", foreground=c["text"],
-                        fieldbackground="white", font=("微软雅黑", 9), rowheight=26)
-        style.configure("Treeview.Heading", background=c["header"], foreground="white",
-                        font=("微软雅黑", 9, "bold"))
-        style.map("Treeview", background=[("selected", c["primary"])],
-                  foreground=[("selected", "white")])
+        style.theme_use("default")
+        style.configure("Treeview", font=("微软雅黑", 9), rowheight=24)
+        style.configure("Treeview.Heading", font=("微软雅黑", 9, "bold"))
 
-        self.tree = ttk.Treeview(tree_frame, columns=self.TREE_COLS, show="tree headings",
-                                 selectmode="extended")
+        self.tree = ttk.Treeview(tree_frame, columns=self.TREE_COLS,
+                                 show="tree headings", selectmode="extended")
 
-        self.tree.heading("#0",   text="展开", anchor="w")
-        self.tree.heading("type", text="类型",   anchor="w")
+        self.tree.heading("#0",   text="",      anchor="w")
+        self.tree.heading("type", text="类型",  anchor="w")
         self.tree.heading("name", text="文件名", anchor="w")
         self.tree.heading("path", text="路径",   anchor="w")
         self.tree.heading("size", text="大小",   anchor="e")
 
-        self.tree.column("#0",   width=30,  minwidth=30,  stretch=False)
+        self.tree.column("#0",   width=24,  minwidth=24,  stretch=False)
         self.tree.column("type", width=80,  minwidth=60,  stretch=False)
         self.tree.column("name", width=260, minwidth=120, stretch=True)
-        self.tree.column("path", width=380, minwidth=100, stretch=True)
+        self.tree.column("path", width=400, minwidth=100, stretch=True)
         self.tree.column("size", width=80,  minwidth=60,  stretch=False)
 
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
@@ -169,19 +125,19 @@ class DingTalkScannerGUI:
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
 
-        # ── 底部 ──────────────────────────────────────────────────
-        bottom = tk.Frame(self.root, bg=c["bg"], padx=16, pady=6)
+        # ── 底部提示 ──────────────────────────────────────────────
+        bottom = tk.Frame(self.root, bg="#F0F0F0", padx=10, pady=4)
         bottom.pack(fill="x")
-        tk.Label(bottom, text="删除操作移入回收站，可从回收站恢复",
-                 bg=c["bg"], fg=c["text_sec"], font=("微软雅黑", 9)).pack(side="left")
-        tk.Label(bottom, text="开发者: xc-hjh",
-                 bg=c["bg"], fg=c["text_sec"], font=("微软雅黑", 8)).pack(side="right")
+        tk.Label(bottom, text="提示: 删除操作移入回收站, 可从回收站恢复  |  双击/单击路径列可打开资源管理器",
+                 bg="#F0F0F0", fg="#888888", font=("微软雅黑", 8)).pack(side="left")
 
         # ── 事件绑定 ──────────────────────────────────────────────
         self.tree.bind("<<TreeviewOpen>>", self._on_tree_open)
         self.tree.bind("<Double-1>", self._on_double_click)
+        # 单击路径列也打开资源管理器
+        self.tree.bind("<ButtonRelease-1>", self._on_single_click)
 
-    # ── 右键上下文菜单 ─────────────────────────────────────────────
+    # ── 右键菜单 ───────────────────────────────────────────────────
 
     def _create_context_menu(self):
         self.ctx_menu = tk.Menu(self.root, tearoff=0)
@@ -215,7 +171,6 @@ class DingTalkScannerGUI:
         return get_available_drives()
 
     def _get_selected_full_paths(self) -> list:
-        """获取当前选中项的完整文件路径列表"""
         paths = []
         for item in self.tree.selection():
             values = self.tree.item(item, "values")
@@ -234,6 +189,17 @@ class DingTalkScannerGUI:
                     paths.append(fp)
         return paths
 
+    def _open_path_in_explorer(self, filepath, name):
+        """打开资源管理器定位到文件或目录"""
+        full = os.path.join(filepath, name)
+        if os.path.exists(full):
+            open_explorer_at(full)
+        elif os.path.isdir(filepath):
+            if sys.platform == "darwin":
+                subprocess.run(["open", filepath])
+            else:
+                subprocess.Popen(f'explorer "{filepath}"', shell=True)
+
     # ── 按目录分组 ─────────────────────────────────────────────────
 
     def _group_results(self, results: List[DetectionResult]) -> Dict[str, List[DetectionResult]]:
@@ -243,7 +209,6 @@ class DingTalkScannerGUI:
         return groups
 
     def _populate_tree(self, results: List[DetectionResult]):
-        """按目录分组填充 Treeview，同一目录的文件归为子节点"""
         for item in self.tree.get_children():
             self.tree.delete(item)
 
@@ -261,17 +226,13 @@ class DingTalkScannerGUI:
                 type_label = "/".join(sorted(types))
                 total_size = sum(i.size for i in items)
                 dir_node = self.tree.insert(
-                    "", "end", text=f"▸ {len(items)} 个文件",
+                    "", "end", text=f"[{len(items)}]",
                     values=(type_label, os.path.basename(dir_path) or dir_path,
                             dir_path, self._format_size(total_size)),
                     tags=("dir",))
                 self.tree.set(dir_node, "_items", repr(items))
 
-        self.tree.tag_configure("dir", background="#FEFCE8")
-        self.tree.tag_configure("single", background="white")
-
     def _on_tree_open(self, event):
-        """目录节点展开时，动态加载子文件"""
         node = self.tree.focus()
         if not node:
             return
@@ -286,7 +247,26 @@ class DingTalkScannerGUI:
                              values=(r.file_type, r.filename, r.path,
                                      self._format_size(r.size)),
                              tags=("file",))
-        self.tree.tag_configure("file", background="white")
+
+    # ── 单击路径列 → 打开资源管理器 ────────────────────────────────
+
+    def _on_single_click(self, event):
+        """单击路径列时打开资源管理器"""
+        region = self.tree.identify("column", event.x, event.y)
+        # "#3" = path 列 (0=#0, 1=type, 2=name, 3=path)
+        if region not in ("#3", "path"):
+            return
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        # 目录组节点不处理（由展开/折叠处理）
+        if self.tree.set(item, "_items"):
+            return
+        values = self.tree.item(item, "values")
+        if not values:
+            return
+        _, name, path, _ = values
+        self._open_path_in_explorer(path, name)
 
     # ── 双击定位 ───────────────────────────────────────────────────
 
@@ -294,28 +274,20 @@ class DingTalkScannerGUI:
         item = self.tree.identify_row(event.y)
         if not item:
             return
-        # 目录组节点：不拦截，让 Treeview 处理展开/折叠
         if self.tree.set(item, "_items"):
             return
         values = self.tree.item(item, "values")
         if not values:
             return
         _, name, path, _ = values
-        full_path = os.path.join(path, name)
-        if os.path.exists(full_path):
-            open_explorer_at(full_path)
-        elif os.path.isdir(path):
-            if sys.platform == "darwin":
-                subprocess.run(["open", path])
-            else:
-                subprocess.Popen(f'explorer "{path}"', shell=True)
+        self._open_path_in_explorer(path, name)
 
     # ── 扫描流程 ───────────────────────────────────────────────────
 
     def _start_scan(self):
         name = self.name_var.get().strip()
         if not name:
-            self.name_entry.configure(bg="#FEE2E2")
+            self.name_entry.configure(bg="#FFEEEE")
             self.root.after(600, lambda: self.name_entry.configure(bg="white"))
             self.status_var.set("请输入姓名")
             return
@@ -369,7 +341,7 @@ class DingTalkScannerGUI:
         self.progress.stop()
         total = len(self._results)
         groups = len(self._group_results(self._results))
-        self.status_var.set(f"扫描完成，发现 {total} 个违规文件（{groups} 个目录）")
+        self.status_var.set(f"扫描完成, 发现 {total} 个违规文件 ({groups} 个目录)")
         if total:
             self._auto_notify()
 
@@ -377,7 +349,7 @@ class DingTalkScannerGUI:
 
     def _auto_notify(self):
         name = self.name_var.get().strip()
-        self.status_var.set(f"扫描完成，发现 {len(self._results)} 个违规文件 — 正在上报...")
+        self.status_var.set(f"扫描完成, 发现 {len(self._results)} 个违规文件 - 正在上报...")
 
         def _send():
             result = self.on_notify(name, self._results, "")
@@ -391,11 +363,11 @@ class DingTalkScannerGUI:
         threading.Thread(target=_push, daemon=True).start()
 
     def _notify_done(self, r):
-        tag = "报警已发送 ✓" if r.get("success") else f"报警失败: {r.get('message','')}"
-        self.status_var.set(f"{self.status_var.get().split('—')[0].strip()} — {tag}")
+        tag = "报警已发送" if r.get("success") else f"报警失败: {r.get('message','')}"
+        self.status_var.set(f"{self.status_var.get().split('-')[0].strip()} - {tag}")
 
     def _sheet_done(self, r):
-        tag = "智能表已同步 ✓" if r.get("success") else f"智能表失败: {r.get('message','')}"
+        tag = "智能表已同步" if r.get("success") else f"智能表失败: {r.get('message','')}"
         self.status_var.set(f"{self.status_var.get()} ; {tag}")
 
     # ── 删除功能 ───────────────────────────────────────────────────
@@ -438,7 +410,7 @@ class DingTalkScannerGUI:
 
         count = len(files_to_delete)
         if not messagebox.askyesno("确认删除",
-                f"确定要将 {count} 个文件移入回收站吗？\n\n此操作可从回收站恢复。"):
+                f"确定要将 {count} 个文件移入回收站吗?\n\n此操作可从回收站恢复。"):
             return
 
         def _do():
@@ -462,13 +434,13 @@ class DingTalkScannerGUI:
         success_count = len(file_paths) - len(errors)
 
         if errors:
-            msg = f"已删除 {success_count} 个文件，{len(errors)} 个失败"
+            msg = f"已删除 {success_count} 个文件, {len(errors)} 个失败"
             if len(errors) <= 3:
                 msg += "\n\n" + "\n".join(errors)
             messagebox.showwarning("删除完成", msg)
             self.status_var.set(f"删除完成: 成功 {success_count}, 失败 {len(errors)}, 剩余 {total}")
         else:
-            self.status_var.set(f"已成功删除 {success_count} 个文件，剩余 {total} 个违规项")
+            self.status_var.set(f"已成功删除 {success_count} 个文件, 剩余 {total} 个违规项")
 
     # ── 全选 / 取消全选 ────────────────────────────────────────────
 
@@ -484,7 +456,7 @@ class DingTalkScannerGUI:
 
     def _open_selected_location(self):
         paths = self._get_selected_full_paths()
-        for fp in paths[:5]:  # 最多打开5个
+        for fp in paths[:5]:
             if os.path.exists(fp):
                 open_explorer_at(fp)
 
@@ -519,7 +491,7 @@ class DingTalkScannerGUI:
         if not self.on_clean_registry:
             messagebox.showwarning("提示", "该功能未启用")
             return
-        if not messagebox.askyesno("确认", "将删除注册表中所有钉钉相关安装记录，不可撤销。\n是否继续？"):
+        if not messagebox.askyesno("确认", "将删除注册表中所有违规软件相关安装记录, 不可撤销。\n是否继续?"):
             return
 
         def _do():
@@ -529,7 +501,7 @@ class DingTalkScannerGUI:
         threading.Thread(target=_do, daemon=True).start()
 
     def _clean_done(self, deleted, errors):
-        msg = f"已删除 {deleted} 个钉钉相关注册表项。"
+        msg = f"已删除 {deleted} 个相关注册表项。"
         if errors:
             msg += "\n\n失败项:\n" + "\n".join(errors)
         messagebox.showinfo("清理完成", msg)

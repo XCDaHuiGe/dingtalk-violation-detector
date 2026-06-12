@@ -22,7 +22,7 @@ jobs:
       - name: 打包 Windows GUI 版
         run: |
           pyinstaller --onefile --windowed `
-            --name "钉钉违规检测工具" `
+            --name "违规检测工具" `
             --hidden-import requests `
             --hidden-import urllib3 `
             --hidden-import charset_normalizer `
@@ -36,7 +36,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Windows-GUI
-          path: dist/钉钉违规检测工具.exe
+          path: dist/违规检测工具.exe
 
   build-macos:
     runs-on: macos-latest
@@ -53,7 +53,7 @@ jobs:
       - name: 打包 macOS 命令行版
         run: |
           pyinstaller --onefile \
-            --name "钉钉违规检测工具-CLI" \
+            --name "违规检测工具-CLI" \
             --hidden-import requests \
             --hidden-import urllib3 \
             --hidden-import charset_normalizer \
@@ -63,13 +63,13 @@ jobs:
 
       - name: 生成双击启动脚本
         run: |
-          printf '#!/bin/bash\ncd "$(dirname "$0")"\nchmod +x ./钉钉违规检测工具-CLI\n./钉钉违规检测工具-CLI\nread -p "按回车键退出..."\n' > dist/钉钉违规检测工具.command
-          chmod +x dist/钉钉违规检测工具.command
+          printf '#!/bin/bash\ncd "$(dirname "$0")"\nchmod +x ./违规检测工具-CLI\n./违规检测工具-CLI\nread -p "按回车键退出..."\n' > dist/违规检测工具.command
+          chmod +x dist/违规检测工具.command
 
       - name: 上传 macOS 产物
         uses: actions/upload-artifact@v4
         with:
           name: macOS-CLI
           path: |
-            dist/钉钉违规检测工具-CLI
-            dist/钉钉违规检测工具.command
+            dist/违规检测工具-CLI
+            dist/违规检测工具.command

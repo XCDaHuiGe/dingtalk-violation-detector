@@ -24,7 +24,7 @@ echo [3/3] 打包单文件 GUI 程序...
 .venv\Scripts\python.exe -m PyInstaller ^
     --onefile ^
     --windowed ^
-    --name "钉钉违规检测工具" ^
+    --name "违规检测工具" ^
     --hidden-import requests ^
     --hidden-import urllib3 ^
     --hidden-import charset_normalizer ^
