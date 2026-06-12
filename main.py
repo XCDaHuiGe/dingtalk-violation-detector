@@ -1,7 +1,8 @@
 import os
 import sys
+import time
 import socket
-from detector import HighPerfScanner, delete_to_recycle_bin
+from detector import HighPerfScanner, delete_to_recycle_bin, ScanProgress
 from notifier import send_notification
 from smartsheet import push_results_to_smartsheet
 
@@ -20,19 +21,35 @@ class ScanController:
     def __init__(self):
         self.scanner = HighPerfScanner()
 
-    def do_scan(self, drives, progress_cb):
+    def do_scan(self, drives, progress_cb, stage_cb=None):
         """执行全量检测：注册表 + 固定路径 + 文件扫描"""
         all_results = []
+        start_time = time.time()
 
         # 1. 注册表预检（毫秒级）
-        all_results.extend(self.scanner.scan_registry())
+        if stage_cb:
+            stage_cb("正在检查注册表...")
+        registry_results = self.scanner.scan_registry()
+        all_results.extend(registry_results)
 
         # 2. 固定路径探测
-        all_results.extend(self.scanner.scan_fixed_paths())
+        if stage_cb:
+            stage_cb(f"正在检查固定路径... (已发现 {len(all_results)} 项)")
+        fixed_results = self.scanner.scan_fixed_paths()
+        all_results.extend(fixed_results)
 
         # 3. 全盘文件扫描
         if drives:
+            if stage_cb:
+                stage_cb(f"正在全盘扫描... (已发现 {len(all_results)} 项)")
+            # 创建进度对象用于全盘扫描
+            progress = ScanProgress(start_time=start_time, is_running=True)
+            self.scanner.progress = progress
             all_results.extend(self.scanner.scan_all_drives(drives, progress_cb))
+        else:
+            # 无可扫描盘符时，报告最终发现数
+            if stage_cb:
+                stage_cb(f"扫描完成 (已发现 {len(all_results)} 项)")
 
         # 去重 + 排序
         seen = set()

@@ -4,6 +4,7 @@ import threading
 import time
 import os
 import sys
+import re
 import subprocess
 from typing import List, Dict, Optional
 from collections import defaultdict
@@ -133,6 +134,11 @@ class FletGUI:
         self.stat_doc = None
         self.stat_registry = None
         self.header_checkbox = None
+        self.log_list = None  # 日志列表控件
+        self._last_progress_update = 0.0
+        self._scan_phase = 0  # 当前扫描阶段: 0=未开始, 1=注册表, 2=固定路径, 3=全盘
+        self._group_items = {}  # 分组行 → 子控件列表映射
+        self._collapsed_groups = set()  # 已折叠的分组路径
 
     def run(self):
         ft.app(target=self._main)
@@ -149,6 +155,8 @@ class FletGUI:
         page.window.min_height = 500
         page.bgcolor = Colors.SURFACE
         page.theme_mode = ft.ThemeMode.DARK
+        page.on_window_event = self._on_window_event
+        page.on_keyboard_event = self._on_keyboard_event
 
         # ── 构建界面 ─────────────────────────────────────────────
         page.add(self._build_layout())
@@ -297,6 +305,16 @@ class FletGUI:
         self.stat_doc = ft.Text("0", size=12, weight=ft.FontWeight.W_500, color=Colors.ON_SURFACE)
         self.stat_registry = ft.Text("0", size=12, weight=ft.FontWeight.W_500, color=Colors.TERTIARY)
 
+        # 日志列表
+        self.log_list = ft.Column(
+            spacing=2,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+            controls=[
+                ft.Text("> 系统就绪", size=10, color=Colors.ON_SURFACE_VARIANT, opacity=0.7)
+            ]
+        )
+
         return ft.Container(
             width=240,
             bgcolor=Colors.SURFACE_CONTAINER,
@@ -321,30 +339,31 @@ class FletGUI:
                             ]
                         )
                     ),
-                    # 导航菜单
+                    # 日志面板
                     ft.Container(
-                        padding=ft.padding.Padding(0, 8, 0, 8),
+                        padding=ft.padding.Padding(12, 8, 12, 8),
+                        expand=True,
+                        content=ft.Column(
+                            spacing=4,
+                            expand=True,
+                            controls=[
+                                ft.Text("[ 运行日志 ]", size=10, color=Colors.SECONDARY),
+                                ft.Text("SYSTEM LOG", size=11, weight=ft.FontWeight.W_700,
+                                        color=Colors.ON_SURFACE_VARIANT),
+                                self.log_list,
+                            ]
+                        )
+                    ),
+                    # 操作提示
+                    ft.Container(
+                        padding=ft.padding.Padding(12, 8, 12, 8),
+                        border=border_bottom(1, Colors.OUTLINE_VARIANT),
                         content=ft.Column(
                             spacing=4,
                             controls=[
-                                ft.Container(
-                                    padding=ft.padding.Padding(16, 4, 8, 4),
-                                    content=ft.Text("导航菜单", size=10, color=Colors.ON_SURFACE_VARIANT)
-                                ),
-                                ft.Container(
-                                    bgcolor=Colors.SURFACE_VARIANT,
-                                    border=border_left(4, Colors.PRIMARY),
-                                    border_radius=border_radius_only(top_right=2, bottom_right=2),
-                                    padding=ft.padding.Padding(12, 8, 8, 8),
-                                    content=ft.Row(
-                                        spacing=12,
-                                        controls=[
-                                            ft.Icon(ft.Icons.DASHBOARD, size=18, color=Colors.PRIMARY),
-                                            ft.Text("检测面板", size=12, color=Colors.PRIMARY,
-                                                    weight=ft.FontWeight.W_600)
-                                        ]
-                                    )
-                                )
+                                ft.Text("快捷操作", size=10, color=Colors.ON_SURFACE_VARIANT),
+                                ft.Text("Ctrl+A 全选  |  Ctrl+C 复制", size=10, color=Colors.ON_SURFACE_VARIANT, opacity=0.6),
+                                ft.Text("Delete 删除所选", size=10, color=Colors.ON_SURFACE_VARIANT, opacity=0.6),
                             ]
                         )
                     )
@@ -385,12 +404,12 @@ class FletGUI:
         self.speed_text = ft.Text("0/s", size=14, weight=ft.FontWeight.W_500, color=Colors.SECONDARY)
         self.elapsed_text = ft.Text("00:00", size=14, weight=ft.FontWeight.W_500, color=Colors.PRIMARY)
 
-        # 进度条段落
+        # 进度条段落（支持阶段动画）
         self.progress_segments = [
-            ft.Container(bgcolor=Colors.PRIMARY, height=6, expand=True,
+            ft.Container(bgcolor=Colors.PRIMARY, height=6, expand=True, opacity=0.3,
                          border_radius=border_radius_only(top_left=3, bottom_left=3)),
-            ft.Container(bgcolor=Colors.SECONDARY, height=6, expand=True),
-            ft.Container(bgcolor=Colors.PRIMARY_CONTAINER, height=6, expand=True,
+            ft.Container(bgcolor=Colors.SECONDARY, height=6, expand=True, opacity=0.3),
+            ft.Container(bgcolor=Colors.PRIMARY_CONTAINER, height=6, expand=True, opacity=0.3,
                          border_radius=border_radius_only(top_right=3, bottom_right=3))
         ]
 
@@ -434,8 +453,8 @@ class FletGUI:
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         controls=[
                             ft.Text("注册表", size=10, color=Colors.ON_SURFACE_VARIANT),
-                            ft.Text("Fixed Paths", size=10, color=Colors.ON_SURFACE_VARIANT),
-                            ft.Text("Full Disk", size=10, color=Colors.ON_SURFACE_VARIANT),
+                            ft.Text("固定路径", size=10, color=Colors.ON_SURFACE_VARIANT),
+                            ft.Text("全盘扫描", size=10, color=Colors.ON_SURFACE_VARIANT),
                         ]
                     )
                 ]
@@ -488,6 +507,20 @@ class FletGUI:
                                         alignment=alignment_center
                                     ),
                                     ft.Container(
+                                        width=60,
+                                        content=ft.TextButton(
+                                            "取消",
+                                            style=ft.ButtonStyle(
+                                                color=Colors.ON_SURFACE_VARIANT,
+                                                padding=0,
+                                                text_style=ft.TextStyle(size=9)
+                                            ),
+                                            on_click=lambda _: self._deselect_all(None),
+                                            tooltip="取消全选"
+                                        ),
+                                        alignment=alignment_center
+                                    ),
+                                    ft.Container(
                                         expand=True,
                                         content=ft.Text("名称 / 目标", size=11, weight=ft.FontWeight.W_700,
                                                         color=Colors.ON_SURFACE_VARIANT)
@@ -519,7 +552,7 @@ class FletGUI:
                         result_id: str = "") -> ft.Container:
         # 图标
         if is_group:
-            icon = ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN, size=16, color=Colors.ON_SURFACE_VARIANT)
+            icon = ft.Icon(ft.Icons.KEYBOARD_ARROW_RIGHT, size=16, color=Colors.ON_SURFACE_VARIANT)
             type_icon = ft.Icon(ft.Icons.FOLDER, size=18, color=Colors.SECONDARY)
             name_color = Colors.ON_SURFACE
         else:
@@ -531,6 +564,27 @@ class FletGUI:
             else:
                 type_icon = ft.Icon(ft.Icons.DESCRIPTION, size=18, color=Colors.ON_SURFACE_VARIANT)
             name_color = Colors.TERTIARY if file_type in ["exe", "msi"] else Colors.ON_SURFACE
+
+        # 右键上下文菜单
+        full_path = result_id or os.path.join(path, name)  # 完整文件路径
+        ctx_menu = ft.PopupMenuButton(
+            icon=ft.Icons.MORE_VERT, icon_size=14,
+            icon_color=Colors.ON_SURFACE_VARIANT,
+            tooltip="更多操作",
+            bgcolor=Colors.SURFACE_CONTAINER_HIGH,
+            items=[
+                ft.PopupMenuItem(
+                    content="打开文件位置",
+                    icon=ft.Icons.FOLDER_OPEN,
+                    on_click=lambda e, p=full_path: open_explorer_at(p),
+                ),
+                ft.PopupMenuItem(
+                    content="复制路径",
+                    icon=ft.Icons.COPY,
+                    on_click=lambda e, p=full_path: self._copy_single_path(p),
+                ),
+            ]
+        )
 
         # 复选框 - 绑定选择事件
         rid = result_id or path
@@ -557,7 +611,6 @@ class FletGUI:
         )
 
         # 路径（可点击打开资源管理器）
-        full_path = path
         path_text = ft.Text(
             path,
             size=11,
@@ -590,6 +643,13 @@ class FletGUI:
         left_indent = 12 + (indent * 24)
         is_child = indent > 0
 
+        # 分组行点击折叠/展开
+        row_on_click = None
+        if is_group:
+            def _group_click(e, _rid=rid, _icon=icon):
+                self._toggle_group(_rid, _icon)
+            row_on_click = _group_click
+
         row = ft.Container(
             bgcolor=Colors.SURFACE_VARIANT if is_child else Colors.SURFACE_CONTAINER_LOWEST,
             border=border_left_bottom(
@@ -598,10 +658,11 @@ class FletGUI:
             ),
             padding=ft.padding.Padding(left_indent, 8, 12, 8),
             on_hover=lambda e: self._on_row_hover(e, is_child),
+            on_click=row_on_click,
             content=ft.Row(
                 spacing=8,
                 controls=[
-                    ft.Container(width=32, content=checkbox, alignment=ft.alignment.center),
+                    ft.Container(width=32, content=checkbox, alignment=alignment_center),
                     ft.Row(
                         spacing=8,
                         controls=[icon, type_icon, name_text, count_badge],
@@ -618,7 +679,8 @@ class FletGUI:
                         width=96,
                         alignment=alignment_center_right,
                         content=size_text
-                    )
+                    ),
+                    ft.Container(width=32, content=ctx_menu, alignment=alignment_center),
                 ]
             )
         )
@@ -654,12 +716,11 @@ class FletGUI:
         self.tree_container.update()
 
     def _sync_checkbox(self, container, value):
-        """递归同步复选框状态"""
+        """递归同步复选框状态（只更新值，不单独调用 update）"""
         if hasattr(container, 'content'):
             content = container.content
             if isinstance(content, ft.Checkbox):
                 content.value = value
-                content.update()
                 return
             if hasattr(content, 'controls'):
                 for child in content.controls:
@@ -710,105 +771,200 @@ class FletGUI:
         name = self.name_field.value.strip() if self.name_field.value else ""
         if not name:
             self.name_field.border_color = Colors.TERTIARY_CONTAINER
-            self.name_field.update()
             self.status_text.value = "请输入姓名"
-            self.status_text.update()
+            self.page.update()
             return
 
         self.name_field.border_color = Colors.OUTLINE_VARIANT
-        self.name_field.update()
 
         self._scanning = True
+        self._cancel_requested = False
         self._results = []
         self._selected_items.clear()
         self.tree_container.controls.clear()
+        self._group_items.clear()
+        self._collapsed_groups.clear()
 
-        self.start_btn.text = "扫描中..."
+        # 重置进度段
+        self._scan_phase = 0
+        self._scan_start_time = time.time()
+        for seg in self.progress_segments:
+            seg.opacity = 0.3
+
+        self.start_btn_text.value = "扫描中..."
         self.start_btn.disabled = True
         self.cancel_btn.disabled = False
-        self.start_btn.update()
-        self.cancel_btn.update()
 
-        self.status_text.value = "扫描中..."
-        self.status_text.update()
+        self.status_text.value = "扫描中 - 正在检查注册表..."
+        self.footer_status.value = "系统版本 v6.0 | 运行状态：扫描中"
+        self.page.update()
+        self._log("开始扫描")
 
+        # 活动指示器
+        self._scan_dots = 0
+        self._scan_timer = None
         drives = get_available_drives()
+
+        def _animate():
+            """活动指示器 - 让用户知道程序还在运行"""
+            if not self._scanning:
+                return
+            # 全盘扫描阶段有精确进度显示，停止动画定时器
+            if "全盘扫描" in (self.status_text.value or ""):
+                return
+            self._scan_dots = (self._scan_dots + 1) % 4
+            dots = "." * self._scan_dots
+            current = self.status_text.value or "扫描中"
+            # 从状态文本中提取已发现数量，追加到状态栏
+            found_m = re.search(r'已发现 (\d+) 项', current)
+            found_tag = f" | 已发现 {found_m.group(1)} 项" if found_m else ""
+            # 计算已用时间
+            elapsed = time.time() - self._scan_start_time
+            elapsed_tag = f" | {int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
+            base = re.sub(r'\.+$', '', current).rstrip("。")
+            self.status_text.value = f"{base}{dots}{found_tag}{elapsed_tag}"
+            self.status_text.update()
+            # 继续动画（1 秒间隔，提供清晰反馈）
+            if self._scanning:
+                self._scan_timer = threading.Timer(1.0, lambda: self.page.run_thread(_animate))
+                self._scan_timer.daemon = True
+                self._scan_timer.start()
+
+        def _stage_update(stage_msg):
+            """阶段回调 - 从工作线程调用"""
+            self.page.run_thread(self._update_stage, stage_msg)
 
         def run():
             try:
-                results = self.on_scan(drives, self._update_progress)
+                # 启动动画
+                self.page.run_thread(_animate)
+
+                # 调用 on_scan，传入进度回调和阶段回调
+                results = self.on_scan(drives, self._update_progress, _stage_update)
                 self._results = results
-                self.page.invoke_async(self._populate_tree, results)
+                if not self._cancel_requested:
+                    self.page.run_thread(self._populate_tree, results)
             except Exception as ex:
-                self.page.invoke_async(self._show_error, str(ex))
+                self.page.run_thread(self._show_error, str(ex))
             finally:
-                self.page.invoke_async(self._scan_done)
+                # 停止动画定时器
+                if self._scan_timer:
+                    self._scan_timer.cancel()
+                self.page.run_thread(self._scan_done)
 
         threading.Thread(target=run, daemon=True).start()
 
     def _cancel_scan(self, e):
+        self._cancel_requested = True
         self._scanning = False
         if self.on_cancel:
             self.on_cancel()
         self.status_text.value = "已取消"
-        self.status_text.update()
+        self.footer_status.value = "系统版本 v6.0 | 运行状态：已取消"
+        self.page.update()
+
+    def _update_stage(self, stage_msg: str):
+        """更新扫描阶段信息 - 在 UI 线程中执行"""
+        try:
+            # 提取已发现数量
+            m = re.search(r'已发现 (\d+) 项', stage_msg)
+            if m:
+                self.found_text.value = m.group(1)
+                # 更新已用时间
+                elapsed = time.time() - self._scan_start_time
+                self.elapsed_text.value = f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
+
+            self.status_text.value = f"扫描中 - {stage_msg}"
+            self._log(stage_msg)
+            # 更新进度条阶段指示
+            if "注册表" in stage_msg:
+                self._scan_phase = 1
+            elif "固定路径" in stage_msg:
+                self._scan_phase = 2
+            elif "全盘扫描" in stage_msg:
+                self._scan_phase = 3
+            # 更新段落透明度：已完成=1.0, 当前=1.0, 未开始=0.3
+            for i, seg in enumerate(self.progress_segments):
+                if i < self._scan_phase:
+                    seg.opacity = 1.0
+                else:
+                    seg.opacity = 0.3
+            self.page.update()
+        except Exception:
+            pass
 
     def _update_progress(self, progress: ScanProgress):
+        """从工作线程调用，将数据传到 UI 线程更新"""
         if not self._scanning:
             return
-        elapsed = time.time() - progress.start_time
-        scanned = progress.scanned_count
-        found = progress.found_count
+        # GUI 层节流：每秒刷新一次
+        now = time.time()
+        if now - self._last_progress_update < 1.0:
+            return
+        self._last_progress_update = now
+        elapsed = now - progress.start_time
+        data = {
+            'scanned': f"{progress.scanned_count:,}",
+            'found': str(progress.found_count),
+            'speed': f"{progress.speed:,.0f}/s",
+            'elapsed': f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
+        }
+        self.page.run_thread(self._refresh_progress, data)
 
-        self.scanned_text.value = f"{scanned:,}"
-        self.found_text.value = str(found)
-        self.speed_text.value = f"{progress.speed:,.0f}/s"
-        self.elapsed_text.value = f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
-
-        self.page.invoke_async(self._refresh_progress)
-
-    def _refresh_progress(self):
+    def _refresh_progress(self, data):
+        """在 UI 线程中更新进度显示 - 批量更新"""
         try:
-            self.scanned_text.update()
-            self.found_text.update()
-            self.speed_text.update()
-            self.elapsed_text.update()
+            self.scanned_text.value = data['scanned']
+            self.found_text.value = data['found']
+            self.speed_text.value = data['speed']
+            self.elapsed_text.value = data['elapsed']
+            self.status_text.value = (
+                f"全盘扫描中 - 已扫描 {data['scanned']} 个文件, "
+                f"发现 {data['found']} 项 ({data['speed']})"
+            )
+            # 批量更新：1 次 page.update() 替代 5 次独立 control.update()
+            self.page.update()
         except Exception:
             pass
 
     def _scan_done(self):
         self._scanning = False
-        self.start_btn.text = "开始扫描"
+        self.start_btn_text.value = "开始扫描"
         self.start_btn.disabled = False
         self.cancel_btn.disabled = True
-        self.start_btn.update()
-        self.cancel_btn.update()
+
+        # 用户主动取消，不覆盖状态
+        if self._cancel_requested:
+            self.page.update()
+            return
 
         total = len(self._results)
         groups = len(self._group_results(self._results))
         self.status_text.value = f"扫描完成, 发现 {total} 个违规文件 ({groups} 个目录)"
-        self.status_text.update()
+        self.footer_status.value = f"系统版本 v6.0 | 运行状态：已完成 (发现 {total} 项)"
+        self._log(f"扫描完成，发现 {total} 项")
+        self.page.update()
 
         if total:
             self._auto_notify()
 
     def _show_error(self, msg: str):
         self.status_text.value = f"扫描出错: {msg}"
-        self.status_text.update()
+        self.page.update()
 
     # ── 自动上报 ────────────────────────────────────────────────
     def _auto_notify(self):
         name = self.name_field.value.strip() if self.name_field.value else ""
         self.status_text.value = f"扫描完成, 发现 {len(self._results)} 个违规文件 - 正在上报..."
-        self.status_text.update()
+        self.page.update()
 
         def _send():
             result = self.on_notify(name, self._results, "")
-            self.page.invoke_async(self._notify_done, result)
+            self.page.run_thread(self._notify_done, result)
 
         def _push():
             result = self.on_smartsheet(name, self._results, "") if self.on_smartsheet else {"success": True}
-            self.page.invoke_async(self._sheet_done, result)
+            self.page.run_thread(self._sheet_done, result)
 
         threading.Thread(target=_send, daemon=True).start()
         threading.Thread(target=_push, daemon=True).start()
@@ -817,13 +973,13 @@ class FletGUI:
         tag = "报警已发送" if r.get("success") else f"报警失败: {r.get('message', '')}"
         current = self.status_text.value.split('-')[0].strip() if self.status_text.value else ""
         self.status_text.value = f"{current} - {tag}"
-        self.status_text.update()
+        self.page.update()
 
     def _sheet_done(self, r):
         tag = "智能表已同步" if r.get("success") else f"智能表失败: {r.get('message', '')}"
         current = self.status_text.value if self.status_text.value else ""
         self.status_text.value = f"{current} ; {tag}"
-        self.status_text.update()
+        self.page.update()
 
     # ── 结果填充 ────────────────────────────────────────────────
     def _group_results(self, results: List[DetectionResult]) -> Dict[str, List[DetectionResult]]:
@@ -834,6 +990,8 @@ class FletGUI:
 
     def _populate_tree(self, results: List[DetectionResult]):
         self.tree_container.controls.clear()
+        self._group_items.clear()
+        self._collapsed_groups.clear()
 
         groups = self._group_results(results)
 
@@ -843,9 +1001,10 @@ class FletGUI:
                 row = self._build_tree_row(
                     is_group=False,
                     name=r.filename,
-                    path=os.path.join(r.path, r.filename),
+                    path=r.path,  # 只显示目录路径
                     size=self._format_size(r.size),
-                    file_type=r.file_type
+                    file_type=r.file_type,
+                    result_id=os.path.join(r.path, r.filename)
                 )
                 self.tree_container.controls.append(row)
             else:
@@ -858,23 +1017,34 @@ class FletGUI:
                     name=dir_name,
                     path=dir_path,
                     size=self._format_size(total_size),
-                    item_count=len(items)
+                    item_count=len(items),
+                    result_id=dir_path
                 )
                 self.tree_container.controls.append(group_row)
 
-                # 子项
+                # 子项（默认折叠）
+                child_rows = []
                 for r in items:
                     child_row = self._build_tree_row(
                         is_group=False,
                         name=r.filename,
-                        path=os.path.join(r.path, r.filename),
+                        path=r.path,  # 只显示目录路径
                         size=self._format_size(r.size),
                         file_type=r.file_type,
-                        indent=1
+                        indent=1,
+                        result_id=os.path.join(r.path, r.filename)
                     )
+                    child_row.visible = False  # 默认折叠
                     self.tree_container.controls.append(child_row)
+                    child_rows.append(child_row)
+                # 注册分组子项映射，并标记为已折叠
+                self._group_items[dir_path] = child_rows
+                self._collapsed_groups.add(dir_path)
 
         self.tree_container.update()
+
+        # 更新侧边栏统计
+        self._update_stats(results)
 
     def _format_size(self, size: int) -> str:
         if size == 0:
@@ -885,6 +1055,34 @@ class FletGUI:
             size /= 1024
         return f"{size:.1f}TB"
 
+    def _update_stats(self, results: List[DetectionResult]):
+        """更新侧边栏统计面板"""
+        install_count = 0
+        log_count = 0
+        doc_count = 0
+        registry_count = 0
+        for r in results:
+            if r.source == "注册表":
+                registry_count += 1
+            elif r.file_type in ("安装程序", "安装目录", "安装本体"):
+                install_count += 1
+            elif "日志" in r.file_type:
+                log_count += 1
+            elif "文档" in r.file_type:
+                doc_count += 1
+        if self.stat_install:
+            self.stat_install.value = str(install_count)
+            self.stat_install.update()
+        if self.stat_log:
+            self.stat_log.value = str(log_count)
+            self.stat_log.update()
+        if self.stat_doc:
+            self.stat_doc.value = str(doc_count)
+            self.stat_doc.update()
+        if self.stat_registry:
+            self.stat_registry.value = str(registry_count)
+            self.stat_registry.update()
+
     # ── 工具栏操作 ──────────────────────────────────────────────
     def _delete_selected(self, e):
         if not self.on_delete:
@@ -892,57 +1090,104 @@ class FletGUI:
             self.status_text.update()
             return
 
-        if not self._results:
-            self.status_text.value = "无结果可删除"
+        # 确定待删除项
+        if self._selected_items:
+            targets = [r for r in self._results
+                       if os.path.join(r.path, r.filename) in self._selected_items]
+        else:
+            self.status_text.value = "请先勾选要删除的文件"
             self.status_text.update()
             return
 
-        # 简化实现：删除全部
-        count = len(self._results)
-        if count == 0:
+        if not targets:
+            self.status_text.value = "无选中项可删除"
+            self.status_text.update()
             return
 
-        def _do():
-            paths = [os.path.join(r.path, r.filename) for r in self._results]
-            errors = self.on_delete(paths)
-            self.page.invoke_async(self._delete_done, paths, errors)
+        count = len(targets)
 
-        threading.Thread(target=_do, daemon=True).start()
+        # 确认对话框
+        def _confirm_delete(dlg):
+            self.page.pop_dialog()
+            paths = [os.path.join(r.path, r.filename) for r in targets]
+
+            def _do():
+                errors = self.on_delete(paths)
+                self.page.run_thread(self._delete_done, paths, errors)
+
+            threading.Thread(target=_do, daemon=True).start()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("确认删除"),
+            content=ft.Text(f"确定要将 {count} 个文件移入回收站吗？"),
+            actions=[
+                ft.TextButton("取消", on_click=lambda _: self.page.pop_dialog()),
+                ft.TextButton("确定", on_click=lambda _: _confirm_delete(dialog)),
+            ],
+        )
+        self.page.show_dialog(dialog)
 
     def _delete_done(self, file_paths, errors):
-        deleted_set = set(file_paths)
+        # 只移除成功删除的文件
+        error_paths = set()
+        for err in errors:
+            if ":" in err:
+                error_paths.add(err.split(":")[0].strip())
+
+        success_paths = [p for p in file_paths if p not in error_paths]
+        deleted_set = set(success_paths)
+
         self._results = [r for r in self._results
                          if os.path.join(r.path, r.filename) not in deleted_set]
+        self._selected_items.clear()
         self._populate_tree(self._results)
 
-        success_count = len(file_paths) - len(errors)
+        success_count = len(success_paths)
         if errors:
             self.status_text.value = f"已删除 {success_count} 个文件, {len(errors)} 个失败"
+            self._log(f"删除 {success_count} 成功, {len(errors)} 失败")
         else:
             self.status_text.value = f"已成功删除 {success_count} 个文件, 剩余 {len(self._results)} 个违规项"
-        self.status_text.update()
+            self._log(f"删除 {success_count} 个文件成功")
+        self.page.update()
 
     def _select_all(self, e):
-        # 全选逻辑
-        self.status_text.value = f"已选择 {len(self._results)} 项"
-        self.status_text.update()
+        """工具栏全选按钮"""
+        self._selected_items.clear()
+        for r in self._results:
+            rid = os.path.join(r.path, r.filename)
+            self._selected_items.add(rid)
+        # 同步 UI 中的复选框状态
+        for ctrl in self.tree_container.controls:
+            self._sync_checkbox(ctrl, True)
+        self.tree_container.update()
+        self.status_text.value = f"已选择 {len(self._selected_items)} 项"
+        self.page.update()
 
     def _copy_paths(self, e):
-        if not self._results:
+        # 优先复制选中项，否则复制全部
+        if self._selected_items:
+            items = [r for r in self._results
+                     if os.path.join(r.path, r.filename) in self._selected_items]
+        else:
+            items = self._results
+
+        if not items:
             self.status_text.value = "无结果可复制"
             self.status_text.update()
             return
 
-        text = "\n".join(os.path.join(r.path, r.filename) for r in self._results)
+        text = "\n".join(os.path.join(r.path, r.filename) for r in items)
         if pyperclip:
             try:
                 pyperclip.copy(text)
-                self.status_text.value = f"已复制 {len(self._results)} 条路径到剪贴板"
+                self.status_text.value = f"已复制 {len(items)} 条路径到剪贴板"
             except Exception:
                 self.status_text.value = "复制失败，请手动复制"
         else:
             self.status_text.value = "复制功能不可用"
-        self.status_text.update()
+        self.page.update()
 
     def _clean_registry(self, e):
         if not self.on_clean_registry:
@@ -950,15 +1195,111 @@ class FletGUI:
             self.status_text.update()
             return
 
-        def _do():
-            deleted, errors = self.on_clean_registry()
-            self.page.invoke_async(self._clean_done, deleted, errors)
+        # 确认对话框
+        def _confirm_clean(dlg):
+            self.page.pop_dialog()
 
-        threading.Thread(target=_do, daemon=True).start()
+            def _do():
+                deleted, errors = self.on_clean_registry()
+                self.page.run_thread(self._clean_done, deleted, errors)
+
+            threading.Thread(target=_do, daemon=True).start()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("确认清理注册表"),
+            content=ft.Text("确定要删除钉钉相关的注册表项吗？"),
+            actions=[
+                ft.TextButton("取消", on_click=lambda _: self.page.pop_dialog()),
+                ft.TextButton("确定", on_click=lambda _: _confirm_clean(dialog)),
+            ],
+        )
+        self.page.show_dialog(dialog)
 
     def _clean_done(self, deleted, errors):
         msg = f"已删除 {deleted} 个相关注册表项。"
         if errors:
             msg += f" ({len(errors)} 个失败)"
         self.status_text.value = msg
-        self.status_text.update()
+        self.page.update()
+
+    # ── 窗口事件 & 键盘快捷键 ──────────────────────────────
+
+    def _on_window_event(self, e):
+        """窗口关闭事件 - 停止扫描"""
+        if e.type == "close":
+            if self._scanning:
+                self._cancel_requested = True
+                self._scanning = False
+                if self.on_cancel:
+                    self.on_cancel()
+
+    def _on_keyboard_event(self, e: ft.KeyboardEvent):
+        """键盘快捷键"""
+        # Delete 键删除选中项
+        if e.key == "Delete" and not e.ctrl and not e.shift and not e.alt:
+            self._delete_selected(None)
+            return
+        if not e.ctrl:
+            return
+        if e.key == "a" and not e.shift and not e.alt:
+            # Ctrl+A 全选
+            self._select_all(None)
+        elif e.key == "c" and not e.shift and not e.alt:
+            # Ctrl+C 复制路径
+            self._copy_paths(None)
+        elif e.key == "d" and not e.shift and not e.alt:
+            # Ctrl+D 取消全选
+            self._deselect_all(None)
+
+    # ── 分组折叠/展开 ──────────────────────────────────────
+
+    def _toggle_group(self, group_path: str, icon: ft.Icon):
+        """切换分组行的折叠/展开状态"""
+        if group_path in self._collapsed_groups:
+            self._collapsed_groups.discard(group_path)
+            icon.name = ft.Icons.KEYBOARD_ARROW_DOWN
+        else:
+            self._collapsed_groups.add(group_path)
+            icon.name = ft.Icons.KEYBOARD_ARROW_RIGHT
+
+        # 显示/隐藏子项
+        children = self._group_items.get(group_path, [])
+        for child in children:
+            child.visible = group_path not in self._collapsed_groups
+        self.page.update()
+
+    def _deselect_all(self, e):
+        """取消全选"""
+        self._selected_items.clear()
+        for ctrl in self.tree_container.controls:
+            self._sync_checkbox(ctrl, False)
+        self.tree_container.update()
+        self.status_text.value = "已取消选择"
+        self.page.update()
+
+    def _copy_single_path(self, path: str):
+        """复制单个路径到剪贴板"""
+        if pyperclip:
+            try:
+                pyperclip.copy(path)
+                self.status_text.value = f"已复制: {path}"
+                self.page.update()
+            except Exception:
+                pass
+
+    def _log(self, msg: str):
+        """向日志面板追加一条记录"""
+        if not self.log_list:
+            return
+        ts = time.strftime("%H:%M:%S")
+        self.log_list.controls.append(
+            ft.Text(f"> [{ts}] {msg}", size=10, color=Colors.ON_SURFACE_VARIANT, opacity=0.8)
+        )
+        # 最多保留 50 条日志
+        if len(self.log_list.controls) > 50:
+            self.log_list.controls.pop(0)
+        try:
+            self.log_list.update()
+        except Exception:
+            pass

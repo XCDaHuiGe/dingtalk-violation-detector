@@ -357,6 +357,7 @@ class HighPerfScanner:
         results = []
         stack: List[Tuple[str, int]] = [(root, 0)]
         batch = 0                       # 批量进度计数（减少锁竞争）
+        last_cb_count = 0               # 上次回调时的累计数量
         while stack:
             dirpath, depth = stack.pop()
             if self._cancel or depth > max_depth:
@@ -399,19 +400,37 @@ class HighPerfScanner:
                                     stack.append((entry.path, depth + 1))
                         except (PermissionError, OSError):
                             continue
+
+                # 每 500 个文件刷新一次进度（减少锁竞争）
+                if batch >= 500:
+                    self.progress.increment_scanned(batch)
+                    batch = 0
+                    # 定期调用进度回调
+                    cb = getattr(self, '_progress_cb', None)
+                    if cb and self.progress.scanned_count - last_cb_count >= 1000:
+                        elapsed = time.time() - self.progress.start_time
+                        self.progress.speed = self.progress.scanned_count / elapsed if elapsed > 0 else 0
+                        cb(self.progress)
+                        last_cb_count = self.progress.scanned_count
             except (PermissionError, OSError):
                 continue
-        # 每批结束后一次性刷新进度（减少锁竞争）
+        # 目录扫描完毕，刷新剩余进度
         if batch:
             self.progress.increment_scanned(batch)
+        # 最终回调
+        cb = getattr(self, '_progress_cb', None)
+        if cb:
+            elapsed = time.time() - self.progress.start_time
+            self.progress.speed = self.progress.scanned_count / elapsed if elapsed > 0 else 0
+            cb(self.progress)
         return results
 
     def scan_all_drives(self, drives: List[str],
                         progress_cb: Optional[Callable] = None) -> List[DetectionResult]:
         self.progress = ScanProgress(start_time=time.time(), is_running=True)
         self._cancel = False
+        self._progress_cb = progress_cb  # 存储回调供 _scan_dir 内部使用
         all_results: List[DetectionResult] = []
-        last_update = 0.0
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(self._scan_dir, d): d for d in drives if os.path.isdir(d)}
@@ -422,19 +441,11 @@ class HighPerfScanner:
                     all_results.extend(future.result())
                 except Exception:
                     pass
-                if progress_cb:
-                    now = time.time()
-                    if now - last_update >= 0.2:
-                        elapsed = now - self.progress.start_time
-                        scanned = self.progress.scanned_count
-                        self.progress.speed = scanned / elapsed if elapsed > 0 else 0
-                        self.progress.estimated_total = int(scanned * 1.5 if elapsed < 3 else scanned * 1.25)
-                        progress_cb(self.progress)
-                        last_update = now
 
         self.progress.is_running = False
         if progress_cb:
             progress_cb(self.progress)
+        self._progress_cb = None
         return all_results
 
     def scan_fixed_paths(self) -> List[DetectionResult]:
