@@ -90,10 +90,20 @@ def main():
         ft.app(target=_err_dlg)
         sys.exit(1)
 
+    def on_notify(results):
+        """企业微信 Webhook 通知（占位 - GUI 触发）"""
+        return send_notification(results)
+
+    def on_smartsheet(results):
+        """企业微信智能表同步（占位 - GUI 触发）"""
+        return push_results_to_smartsheet(results)
+
     app = GUI_CLASS(
-        on_scan=on_scan,
-        on_delete=on_delete,
-        on_cancel=on_cancel,
+        on_scan_callable=on_scan,
+        on_delete_callable=on_delete,
+        on_cancel_callable=on_cancel,
+        on_notify_callable=on_notify,
+        on_smartsheet_callable=on_smartsheet,
     )
     app.run()
 
