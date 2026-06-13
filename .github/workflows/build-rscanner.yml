@@ -1,0 +1,78 @@
+name: 打包 rscanner (Tauri)
+
+on:
+  push:
+    tags:
+      - 'rscanner-v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装前端依赖
+        working-directory: rscanner
+        run: npm install
+
+      - name: 安装 Tauri CLI
+        run: cargo install tauri-cli
+
+      - name: 构建 Windows 版
+        working-directory: rscanner
+        run: cargo tauri build
+        env:
+          CARGO_BUILD_JOBS: 4
+
+      - name: 上传 Windows 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: rscanner-windows
+          path: |
+            rscanner/target/release/bundle/msi/*.msi
+            rscanner/target/release/bundle/nsis/*.exe
+          if-no-files-found: warn
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装前端依赖
+        working-directory: rscanner
+        run: npm install
+
+      - name: 安装 Tauri CLI
+        run: cargo install tauri-cli
+
+      - name: 构建 macOS 版
+        working-directory: rscanner
+        run: cargo tauri build
+        env:
+          CARGO_BUILD_JOBS: 4
+
+      - name: 上传 macOS 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: rscanner-macos
+          path: |
+            rscanner/target/release/bundle/dmg/*.dmg
+            rscanner/target/release/bundle/macos/*.app
+          if-no-files-found: warn
