@@ -31,7 +31,6 @@ rscanner/node_modules/
 rscanner/target/
 rscanner/dist/
 rscanner/src-tauri/target/
-rscanner/src-tauri/icons/
 rscanner/app-icon.png
 rscanner/.cargo/
 *.exe
