@@ -11,9 +11,10 @@ venv/
 # PyInstaller 产物
 build/
 dist/
+# 默认排除所有 spec，仅白名单放行
 *.spec
 !违规检测.spec
-!钉钉违规检测工具.spec
+!flet.spec
 
 # IDE
 .idea/
