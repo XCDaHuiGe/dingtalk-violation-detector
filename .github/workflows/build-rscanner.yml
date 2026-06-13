@@ -44,12 +44,18 @@ jobs:
           CARGO_BUILD_JOBS: 4
 
       - name: 打包为 zip（双击即用）
-        working-directory: rscanner/src-tauri/target/release/bundle/macos
+        working-directory: rscanner/target/release/bundle/macos
         run: |
           zip -r "违规软件检测工具-V6-mac.zip" "违规软件检测工具.app"
 
-      - name: 上传 macOS 产物
+      - name: 上传 macOS .app zip
         uses: actions/upload-artifact@v4
         with:
-          name: rscanner-macos-portable
-          path: rscanner/src-tauri/target/release/bundle/macos/违规软件检测工具-V6-mac.zip
+          name: rscanner-macos-app
+          path: rscanner/target/release/bundle/macos/违规软件检测工具-V6-mac.zip
+
+      - name: 上传 macOS .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: rscanner-macos-dmg
+          path: rscanner/target/release/bundle/dmg/
