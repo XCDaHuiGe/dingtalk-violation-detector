@@ -72,13 +72,14 @@ class ScanController:
     def delete_files(self, file_paths: list) -> list:
         """
         批量删除文件（移入回收站）。
-        Returns: 失败信息列表，空列表表示全部成功。
+        Returns: 失败项列表，每项为 {"path": str, "message": str}。
+                  空列表表示全部成功。
         """
         errors = []
         for fp in file_paths:
             ok, msg = delete_to_recycle_bin(fp)
             if not ok:
-                errors.append(f"{fp}: {msg}")
+                errors.append({"path": fp, "message": msg})
         return errors
 
 
