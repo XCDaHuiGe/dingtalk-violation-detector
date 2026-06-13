@@ -3,18 +3,25 @@
 # 打包: pyinstaller --noconfirm --clean flet.spec
 # 产物: dist/违规检测_flet.exe
 # 入口: main_flet.py (默认启动 flet GUI)
+#
+# 关键依赖：
+#   - flet 0.85.x
+#   - flet-desktop 0.85.x (独立 pip 包)
+#   - flet-windows.zip (从 GitHub Releases 下载，放到 flet_desktop/app/)
 
 import sys
 from pathlib import Path
 
 block_cipher = None
 
-# 定位 venv site-packages 下的 flet 资源
-sp = Path(sys.executable).parent.parent / 'Lib' / 'site-packages' / 'flet'
+# 定位 venv site-packages
+sp = Path(sys.executable).parent.parent / 'Lib' / 'site-packages'
 
 datas = [
     # flet 包内所有资源（assets、js、native dll 等）
-    (str(sp), 'flet'),
+    (str(sp / 'flet'), 'flet'),
+    # flet-desktop 包 + 预打包的 flet-windows.zip（关键！）
+    (str(sp / 'flet_desktop'), 'flet_desktop'),
 ]
 
 hiddenimports = [
@@ -25,9 +32,12 @@ hiddenimports = [
     # Windows 平台
     'winreg', 'ctypes',
     # flet 核心
-    'flet', 'flet_runtime', 'flet_desktop', 'flet.core',
-    'flet.app', 'flet.page', 'flet.controls',
-    'flet.utils', 'flet.cli',
+    'flet', 'flet.app', 'flet.page', 'flet.utils', 'flet.cli',
+    'flet.controls', 'flet.messaging', 'flet.security', 'flet.auth',
+    'flet.canvas', 'flet.components', 'flet.fastapi', 'flet.pubsub',
+    'flet.testing',
+    # flet-desktop（独立包）
+    'flet_desktop', 'flet_desktop.version',
     # 第三方打包易漏
     'oauthlib', 'msgpack', 'repath', 'six', 'anyio', 'h11', 'httpcore', 'httpx',
 ]
@@ -41,8 +51,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # flet 是 Electron 风格 GUI，需要保留 tkinter（gui.py 被 main_flet 不引入
-    # 但 main.py 是从 flet_gui 反向引用 — 安全起见保留）
+    # 不排除 tkinter（虽然 flet 不用，但安全起见保留）
     excludes=['matplotlib', 'numpy', 'pandas',
               'PyQt5', 'PyQt6', 'PySide2', 'PySide6', 'scipy'],
     noarchive=False,

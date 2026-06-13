@@ -5,6 +5,9 @@
 # GUI 框架
 flet>=0.85,<0.86
 
+# flet 桌面端运行时（独立包，PyInstaller 打包必需）
+flet-desktop>=0.85,<0.86
+
 # HTTP（企业微信 Webhook / 智能表上报）
 requests>=2.30
 
