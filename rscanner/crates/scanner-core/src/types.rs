@@ -1,7 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
 
 // ─── 检测结果 ───
 
@@ -72,56 +69,6 @@ pub struct ScanCompleteEvent {
     pub results: Vec<DetectionResult>,
 }
 
-// ─── 扫描进度跟踪器 ───
-
-pub struct ScanProgress {
-    pub scanned: AtomicU64,
-    pub found: AtomicU64,
-    pub start_time: Instant,
-    pub is_running: AtomicBool,
-    pub cancel_flag: Arc<AtomicBool>,
-}
-
-impl ScanProgress {
-    pub fn new(cancel_flag: Arc<AtomicBool>) -> Self {
-        Self {
-            scanned: AtomicU64::new(0),
-            found: AtomicU64::new(0),
-            start_time: Instant::now(),
-            is_running: AtomicBool::new(true),
-            cancel_flag,
-        }
-    }
-
-    pub fn increment_scanned(&self) {
-        self.scanned.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn add_found(&self) {
-        self.found.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn snapshot(&self) -> ProgressEvent {
-        let elapsed = self.start_time.elapsed();
-        let scanned = self.scanned.load(Ordering::Relaxed);
-        let speed = if elapsed.as_secs() > 0 {
-            scanned as f64 / elapsed.as_secs_f64()
-        } else {
-            scanned as f64
-        };
-        ProgressEvent {
-            scanned,
-            found: self.found.load(Ordering::Relaxed) as u32,
-            speed,
-            elapsed_secs: elapsed.as_secs(),
-            phase: ScanPhase::Idle,
-        }
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.cancel_flag.load(Ordering::Relaxed)
-    }
-}
 
 // ─── 配置 ───
 
