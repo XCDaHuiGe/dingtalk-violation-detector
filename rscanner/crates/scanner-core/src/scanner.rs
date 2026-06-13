@@ -762,9 +762,8 @@ pub fn delete_to_recycle_bin(file_path: &str) -> (bool, Option<String>) {
 
 #[cfg(not(target_os = "windows"))]
 pub fn delete_to_recycle_bin(file_path: &str) -> (bool, Option<String>) {
-    let result = std::process::Command::new("trash").arg(file_path).output();
-    match result {
-        Ok(_) => (true, None),
+    match trash::delete(file_path) {
+        Ok(()) => (true, None),
         Err(e) => (false, Some(e.to_string())),
     }
 }
